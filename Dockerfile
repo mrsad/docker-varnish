@@ -1,6 +1,6 @@
 # Varnish
 # Use phusion/baseimage as base image
-FROM phusion/baseimage:latest
+FROM ubuntu:trusty
 MAINTAINER Peter S. "mrsad.info@gmail.com"
 
 # make sure the package repository is up to date
@@ -16,21 +16,21 @@ RUN echo "deb-src http://repo.varnish-cache.org/ubuntu/ $(lsb_release -sc) varni
 RUN apt-get update && apt-get clean
 
 # install varnish
-RUN cd /opt && apt-get source varnish=3.0.5-2
-RUN cd /opt/varnish-3.0.5 && ./autogen.sh
-RUN cd /opt/varnish-3.0.5 && ./configure
-RUN cd /opt/varnish-3.0.5 && make -j3
-RUN cd /opt/varnish-3.0.5 && make install
+RUN cd /opt && apt-get source varnish=3.0.7-1
+RUN cd /opt/varnish-3.0.7 && ./autogen.sh
+RUN cd /opt/varnish-3.0.7 && ./configure
+RUN cd /opt/varnish-3.0.7 && make -j3
+RUN cd /opt/varnish-3.0.7 && make install
 
 # install varnish libvmod-throttle
 RUN git clone https://github.com/nand2/libvmod-throttle.git /opt/libvmod-throttle
 RUN cd /opt/libvmod-throttle && ./autogen.sh
-RUN cd /opt/libvmod-throttle && ./configure VARNISHSRC=/opt/varnish-3.0.5
+RUN cd /opt/libvmod-throttle && ./configure VARNISHSRC=/opt/varnish-3.0.7
 RUN cd /opt/libvmod-throttle && make -j3
 RUN cd /opt/libvmod-throttle && make install
 
 ENV LISTEN_ADDR 0.0.0.0
-ENV LISTEN_PORT 80
+ENV LISTEN_PORT 6081
 ENV TELNET_ADDR 0.0.0.0
 ENV TELNET_PORT 6083
 ENV CACHE_SIZE 25MB
@@ -44,14 +44,16 @@ ADD config/default.vcl /etc/varnish/default.vcl.source
 
 
 # Create a runit entry for your app
-RUN mkdir /etc/service/varnish
-ADD bin/run.sh /etc/service/varnish/run
-RUN chown root /etc/service/varnish/run
-RUN chmod +x /etc/service/varnish/run
+RUN mkdir -p /usr/local/bin
+ADD bin/run.sh /usr/local/bin/varnish.sh
+RUN chown root /usr/local/bin/varnish.sh
+RUN chmod +x /usr/local/bin/varnish.sh
+#RUN echo "#!/bin/bash" > /etc/rc.local
+#RUN echo "/usr/local/bin/varnish.sh" >> /etc/rc.local
 
 # Clean up APT when done
 RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-EXPOSE 80
+EXPOSE 6081
 
-CMD ["/sbin/my_init"]
+CMD ["/usr/local/bin/varnish.sh"]
