@@ -6,13 +6,13 @@ Simple docker varnish image with throttle module forked from Zenedith/docker-var
 ## Pulling
 
 ```
-$ docker pull swcc/docker-varnish
+$ docker pull mrsad/docker-varnish
 ```
 
 ## Running
 
 ```
-$ docker run -d -e BACKEND_PORT_80_TCP_ADDR=example.com -e BACKEND_ENV_PORT=80 -p 8080:80 swcc/docker-varnish
+$ docker run -d -e BACKEND_PORT_80_TCP_ADDR=example.com -e BACKEND_ENV_PORT=80 -p 8080:80 mrsad/docker-varnish
 ```
 
 You can pass environmental variables to customize configuration:
@@ -36,7 +36,7 @@ GRACE_MAX 1h
 From sources:
 
 ```
-$ docker build github.com/swcc/docker-varnish
+$ docker build github.com/mrsad/docker-varnish
 ```
 
 ## Special thanks to Mateusz Stępniak

@@ -1,7 +1,7 @@
 # Varnish
 # Use phusion/baseimage as base image
 FROM phusion/baseimage:latest
-MAINTAINER Paul B. "paul+swcc@bonaud.fr"
+MAINTAINER Peter S. "mrsad.info@gmail.com"
 
 # make sure the package repository is up to date
 RUN apt-get update

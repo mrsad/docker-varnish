@@ -1,165 +1,290 @@
-import throttle;
-
-backend default {
-  .host = "$(eval "echo \$BACKEND_PORT_${BACKEND_ENV_PORT}_TCP_ADDR")";
-  .port = "${BACKEND_ENV_PORT}";
+backend web01 {
+ .host = "$(eval "echo \$BACKEND_PORT_${BACKEND_ENV_PORT}_TCP_ADDR")";
+ .port = "${BACKEND_ENV_PORT}";
+ .connect_timeout = 900s;
+ .first_byte_timeout = 900s;
+ .between_bytes_timeout = 900s;
 }
-
-# Handling of requests that are received from clients.
-# First decide whether or not to lookup data in the cache.
 sub vcl_recv {
-  # Pipe requests that are non-RFC2616 or CONNECT which is weird.
-  if (req.request != "GET" &&
-      req.request != "HEAD" &&
-      req.request != "PUT" &&
-      req.request != "POST" &&
-      req.request != "PATCH" &&
-      req.request != "TRACE" &&
-      req.request != "OPTIONS" &&
-      req.request != "DELETE") {
+  set req.backend = web01;
+
+  if (req.http.X-Forwarded-For) {
+    set req.http.X-Forwarded-For = req.http.X-Forwarded-For;
+  } else {
+    set req.http.X-Forwarded-For = regsub(client.ip, ":.*", "");
+  }
+
+  if (! req.http.Authorization ~ "Basic anVzdGJ1dGlrOmp1c3RidXRpa2RldnNpdGUyMDE2" && ! req.http.X-Forwarded-For ~ "37.193.113.123" && ! req.http.X-Forwarded-For ~ "5.128.82.23" ) {
+           error 401 "Restricted";
+  }
+
+  if (req.http.Cookie ~ "justbutikUserGender") {
+    set req.http.UserGender = ";" + req.http.Cookie;
+    set req.http.UserGender = regsuball(req.http.UserGender, "; +", ";");
+    set req.http.UserGender = regsuball(req.http.UserGender, ";(justbutikUserGender)=", "; \1=");
+    set req.http.UserGender = regsuball(req.http.UserGender, ";[^ ][^;]*", "");
+    set req.http.UserGender = regsuball(req.http.UserGender, "^[; ]+|[; ]+$", "");
+    set req.http.UserGender = regsuball(req.http.UserGender, "(justbutikUserGender)=", "");
+  }
+
+  if (req.http.Cookie ~ "justbutikUserCurrency") {
+    set req.http.UserCurrency = ";" + req.http.Cookie;
+    set req.http.UserCurrency = regsuball(req.http.UserCurrency, "; +", ";");
+    set req.http.UserCurrency = regsuball(req.http.UserCurrency, ";(justbutikUserCurrency)=", "; \1=");
+    set req.http.UserCurrency = regsuball(req.http.UserCurrency, ";[^ ][^;]*", "");
+    set req.http.UserCurrency = regsuball(req.http.UserCurrency, "^[; ]+|[; ]+$", "");
+    set req.http.UserCurrency = regsuball(req.http.UserCurrency, "(justbutikUserCurrency)=", "");
+  }
+
+  if (req.request == "POST") {
     return(pipe);
   }
 
-  if (req.backend.healthy) {
-     set req.grace = ${GRACE_TTL};
-  } else {
-     set req.grace = ${GRACE_MAX};
+  if (req.http.x-pipe && req.restarts > 0) {
+    return(pipe);
   }
+  set req.grace = 120s;
+  if (req.request == "PURGE") {
+    if (!req.http.X-Wodby-Purge) {
+      error 405 "Not allowed.";
+    }
+    return(lookup);
+  }
+  if (req.http.X-Wodby-Monitor) {
+    return(pass);
+  }
+  if (req.http.Cookie ~ "justbutikUserIsAdmin") {
+    return(pass);
+  }
+  # Do not cache these paths.
+  if (req.url ~ "^/status\.php$" ||
+    req.url ~ "^/update\.php$" ||
+    req.url ~ "^/admin/*" ||
+    req.url ~ "^/user/*" ||
+    req.url ~ "^/node/*/sapi-devel" ||
+    req.url ~ "^/node/*/edit" ||
+    req.url ~ "^/flag/.*$"){
 
-  if (req.http.Authorization || req.http.Authenticate) {
     return(pass);
   }
 
-  # Pass requests that are not GET or HEAD
+
+  if(req.url ~ "\.(msi|exe|dmg|zip|tgz|gz)") {
+    return(pipe);
+  }
   if (req.request != "GET" && req.request != "HEAD") {
     return(pass);
   }
-
-  if (throttle.is_allowed("ip:" + client.ip, "${THROTTLE_LIMIT}") > 0s) {
-    error 429 "Too many requests";
+  if (req.http.Cookie ~ "desktop") {
+    set req.http.X-pinned-device = "desktop";
+  }
+  else if (req.http.Cookie ~ "mobile") {
+    set req.http.X-pinned-device = "mobile";
+  }
+  else if (req.http.Cookie ~ "tablet") {
+    set req.http.X-pinned-device = "tablet";
+  }
+  if (req.url ~ "(?i)/(modules|themes|files)/.*\.(png|gif|jpeg|jpg|ico|css|js|ttf|eot)(\?[a-z0-9]+)?$" && req.url !~ "/system/files") {
+    unset req.http.Cookie;
+    set req.http.X-static-asset = "True";
+  }
+  if (req.url ~ "(?i)/(modules|themes|files)/.*\.(doc|docx|xsl|xslx|ppt|pptx)(\?[a-z0-9]+)?$" && req.url !~ "/system/files") {
+    unset req.http.Cookie;
+    return(pass);
+  }
+  if(req.url ~ "^/cron.php") {
+    return(pass);
+  }
+  if ((req.http.host ~ "^(www\.|web\.)?ise") &&
+     (req.http.User-Agent ~ "(?i)feed")) {
+       return(pass);
+  }
+  if(req.http.cookie ~ "(NO_CACHE|PERSISTENT_LOGIN_[a-zA-Z0-9]+)") {
+    return(pass);
+  }
+  if (req.http.Authorization) {
+    return(pass);
+  }
+  #if(req.http.cookie ~ "(^|;\s*)(S?SESS[a-zA-Z0-9]*)=") {
+  #  return(pass);
+  #}
+  if (req.http.Cookie) {
+    set req.http.X-Wodby-Cookie = req.http.cookie;
+    unset req.http.Cookie;
+  }
+  if (req.http.User-Agent ~ "simpletest") {
+    return(pipe);
   }
 
-  if (req.http.x-forwarded-for) {
-    set req.http.X-Forwarded-For = req.http.X-Forwarded-For + ", " + client.ip;
-  } else {
-    set req.http.X-Forwarded-For = client.ip;
-  }
-
-  # Handle compression correctly. Varnish treats headers literally, not
-  # semantically. So it is very well possible that there are cache misses
-  # because the headers sent by different browsers aren't the same.
-  # @see: http://varnish.projects.linpro.no/wiki/FAQ/Compression
-  if (req.http.Accept-Encoding) {
-    if (req.http.Accept-Encoding ~ "gzip") {
-     # if the browser supports it, we'll use gzip
-     set req.http.Accept-Encoding = "gzip";
-    } elsif (req.http.Accept-Encoding ~ "deflate") {
-     # next, try deflate if it is supported
-     set req.http.Accept-Encoding = "deflate";
-    } else {
-     # unknown algorithm. Probably junk, remove it
-     remove req.http.Accept-Encoding;
-    }
-  }
-
-  # Clear cookie and authorization headers, set grace time, lookup in the cache
-  unset req.http.Cookie;
-  unset req.http.Authorization;
   return(lookup);
 }
+sub vcl_hash {
+  hash_data(req.url);
+  if (req.http.host) {
+      hash_data(req.http.host);
+  } else {
+      hash_data(server.ip);
+  }
+  if (req.http.X-Forwarded-Proto) {
+    hash_data(req.http.X-Forwarded-Proto);
+  }
+  if (req.http.UserGender) {
+    hash_data(req.http.UserGender);
+  }
+  if (req.http.UserCurrency) {
+    hash_data(req.http.UserCurrency);
+  }
 
-# Called when entering pipe mode
+  return (hash);
+}
+sub vcl_hit {
+  if (req.request == "PURGE") {
+    purge;
+    error 200 "Purged.";
+  }
+}
+sub vcl_miss {
+  if (req.http.X-Wodby-Cookie) {
+    set bereq.http.Cookie = req.http.X-Wodby-Cookie;
+    unset bereq.http.X-Wodby-Cookie;
+  }
+  if (req.request == "PURGE") {
+    purge;
+    error 404 "Not in cache.";
+  }
+}
+sub vcl_pass {
+  if (req.http.X-Wodby-Cookie) {
+    set bereq.http.Cookie = req.http.X-Wodby-Cookie;
+    unset bereq.http.X-Wodby-Cookie;
+  }
+}
 sub vcl_pipe {
   set bereq.http.connection = "close";
-
-  if (req.http.X-Forwarded-For) {
-    set bereq.http.X-Forwarded-For = req.http.X-Forwarded-For;
-  } else {
-    set bereq.http.X-Forwarded-For = regsub(client.ip, ":.*", "");
-  }
-  return (pipe);
 }
-
-sub vcl_pass {
-  set bereq.http.connection = "close";
-
-  if (req.http.X-Forwarded-For) {
-    set bereq.http.X-Forwarded-For = req.http.X-Forwarded-For;
-  } else {
-    set bereq.http.X-Forwarded-For = regsub(client.ip, ":.*", "");
-  }
-  #return (pass);
-}
-
-# Called when the requested object has been retrieved from the
-# backend, or the request to the backend has failed
 sub vcl_fetch {
-  # Set the grace time
-  set beresp.grace = ${GRACE_MAX};
-
-  # Do not cache the object if the status is not in the 200s
-  if (beresp.status >= 300) {
-    # Remove the Set-Cookie header
-    remove beresp.http.Set-Cookie;
+#  set beresp.http.X-Wodby-App-Server = beresp.backend.name;
+ set beresp.do_esi = true;
+  if ( beresp.http.Content-Length ~ "[0-9]{8,}" ) {
+     set req.http.x-pipe = "1";
+     return(restart);
+  }
+  if (req.http.X-static-asset) {
+    unset beresp.http.Set-Cookie;
+  }
+  if (beresp.status >= 302 || !(beresp.ttl > 0s) || req.request != "GET") {
+    set beresp.http.X-Cacheable = "NO:Not Cacheable";
+    call ah_pass;
+  }
+  if (beresp.status == 301) {
+    if (beresp.ttl < 15m) {
+      set beresp.ttl = 15m;
+    }
+  }
+  if(beresp.http.Pragma ~ "no-cache" ||
+     beresp.http.Cache-Control ~ "no-cache" ||
+     beresp.http.Cache-Control ~ "private") {
+    set beresp.http.X-Cacheable = "NO:Cache-Control=private";
+    call ah_pass;
+  }
+  if(req.url ~ "^/cron.php") {
     return(hit_for_pass);
   }
-
-  # Do not cache the object if the backend application does not want us to.
-  if (beresp.http.Cache-Control ~ "(no-cache|no-store|private|must-revalidate)") {
-    return(hit_for_pass);
+  if(beresp.http.Set-Cookie ~ "SESS") {
+    set beresp.http.X-Cacheable = "NO:Got Session";
+    call ah_pass;
   }
-
-  if (beresp.ttl <= 0s ||
-    beresp.http.Set-Cookie ||
-    beresp.http.Vary == "*") {
-    /*
-    * Mark as "Hit-For-Pass"
-    */
-    set beresp.ttl = ${GRACE_TTL};
-    return (hit_for_pass);
-  }
-
-  # Everything below here should be cached
-
-  # Remove the Set-Cookie header
-  remove beresp.http.Set-Cookie;
-
-  # Deliver the object
-  return (deliver);
+  set beresp.grace = 120s;
+  return(deliver);
 }
-
-# Called before the response is sent back to the client
 sub vcl_deliver {
-
-  # Exclui os assets do revalidate
-  if (! (req.url ~ "^/(assets|images|uploads)")) {
-    # Force browsers and intermediary caches to always check back with us
-    set resp.http.Cache-Control = "private, max-age=0, must-revalidate";
-    set resp.http.Pragma = "no-cache";
-  }
-
-  # Add a header to indicate a cache HIT/MISS
+set resp.http.X-Gender = req.http.UserGender;
+set resp.http.X-Currency = req.http.UserCurrency;
   if (obj.hits > 0) {
     set resp.http.X-Cache = "HIT";
+    set resp.http.X-Cache-Hits = obj.hits;
+    unset resp.http.Set-Cookie;
   } else {
     set resp.http.X-Cache = "MISS";
   }
-
-  return (deliver);
-}
-
-sub vcl_error {
-  set obj.http.Content-Type = "application/json; charset=utf-8";
-  set obj.http.Retry-After = "5";
-  synthetic {"{
-  "status":""} + obj.status + {"",
-  "response":""} + obj.response + {"",
-  "xid":""} + req.xid + {"",
-  "message":"Varnish cache server error"
-  }"};
-  return (deliver);
+  if (req.http.Via ~ "akamai") {
+    set resp.http.X-Age = resp.http.Age;
+    unset resp.http.Age;
+  }
+  if (req.http.X-static-asset) {
+    unset resp.http.Set-Cookie;
+  }
+  if (req.http.user-agent ~ "Safari" && !req.http.user-agent ~ "Chrome") {
+    set resp.http.cache-control = "max-age: 0";
+  }
+  if (req.http.user-agent ~ "ELB-HealthChecker") {
+    set resp.http.Connection = "close";
+  }
+  if (resp.http.Cache-Control) {
+    unset resp.http.Cache-Control;
+  }
+  if (resp.http.Not-Cache-Browser == "1") {
+    set resp.http.Cache-Control = "no-store, no-cache, must-revalidate, post-check=0, pre-check=0";
+    unset resp.http.Not-Cache-Browser;
   }
 
-  sub vcl_init {
-  return (ok);
+  return(deliver);
+}
+sub vcl_error {
+set obj.http.Content-Type = "text/html; charset=utf-8";
+  if (obj.status == 750) {
+    set obj.http.Location = obj.response + req.url;
+    set obj.status = 302;
+    set obj.response = "Found";
+    return(deliver);
+  }
+  set obj.http.Content-Type = "text/html; charset=utf-8";
+  synthetic {"<?xml version="1.0" encoding="utf-8"?>
+  <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+  <html>
+    <head>
+      <title>"} + obj.status + " " + obj.response + {"</title>
+    </head>
+    <body>
+    <h1>This server is experiencing technical problems. Please
+try again in a few moments. Thanks for your continued patience, and
+we're sorry for any inconvenience this may cause.</h1>
+    <p>Error "} + obj.status + " " + obj.response + {"</p>
+    <p>"} + obj.response + {"</p>
+      <p>XID: "} + req.xid + {"</p>
+    </body>
+   </html>
+   "};
+
+  if (obj.status == 401) {
+    # Prompt for password.
+    set obj.http.WWW-Authenticate = "Basic realm=Secured";
+  }
+  synthetic {"
+    <?xml version="1.0" encoding="utf-8"?>
+    <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+     "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+    <html>
+      <head>
+        <title>"} + obj.status + " " + obj.response + {"</title>
+      </head>
+      <body>
+        <div id="page">
+          <h1>Page Could Not Be Loaded</h1>
+          <p>We're very sorry, but the page could not be loaded properly. This should be fixed very soon, and we apologize for any inconvenience.</p>
+          <hr />
+          <h4>Debug Info:</h4>
+            <pre>Status: "} + obj.status + {"
+Response: "} + obj.response + {"
+XID: "} + req.xid + {"</pre>
+        </div>
+      </body>
+    </html>
+  "};
+  return(deliver);
+}
+sub ah_pass {
+  set beresp.ttl = 10s;
+  return(hit_for_pass);
 }
