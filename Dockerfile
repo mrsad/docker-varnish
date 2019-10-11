@@ -7,27 +7,13 @@ MAINTAINER Peter S. "mrsad.info@gmail.com"
 RUN apt-get update
 RUN apt-get install git pkg-config dpkg-dev autoconf curl make autotools-dev automake libtool libpcre3-dev libncurses-dev python-docutils bsdmainutils debhelper dh-apparmor gettext gettext-base groff-base html2text intltool-debian libbsd-dev libbsd0 libcroco3 libedit-dev libedit2 libgettextpo0 libpipeline1 libunistring0 man-db po-debconf xsltproc -y
 
-# download repo key
-RUN curl -s http://repo.varnish-cache.org/debian/GPG-key.txt | apt-key add -
-RUN echo "deb http://repo.varnish-cache.org/ubuntu/ $(lsb_release -sc) varnish-3.0" | tee -a /etc/apt/sources.list
-RUN echo "deb-src http://repo.varnish-cache.org/ubuntu/ $(lsb_release -sc) varnish-3.0" | tee -a /etc/apt/sources.list
-
-# update varnish packages
-RUN apt-get update && apt-get clean
-
 # install varnish
-RUN cd /opt && apt-get source varnish=3.0.7-1
-RUN cd /opt/varnish-3.0.7 && ./autogen.sh
-RUN cd /opt/varnish-3.0.7 && ./configure
-RUN cd /opt/varnish-3.0.7 && make -j3
-RUN cd /opt/varnish-3.0.7 && make install
+RUN cd /opt && curl -s http://varnish-cache.org/_downloads/varnish-3.0.7.tgz | tar zxvf -
+RUN cd /opt/varnish-3.0.7 && ./autogen.sh && ./configure && make -j3 && make install
 
 # install varnish libvmod-throttle
-RUN git clone https://github.com/nand2/libvmod-throttle.git /opt/libvmod-throttle
-RUN cd /opt/libvmod-throttle && ./autogen.sh
-RUN cd /opt/libvmod-throttle && ./configure VARNISHSRC=/opt/varnish-3.0.7
-RUN cd /opt/libvmod-throttle && make -j3
-RUN cd /opt/libvmod-throttle && make install
+#RUN git clone https://github.com/nand2/libvmod-throttle.git /opt/libvmod-throttle
+#RUN cd /opt/libvmod-throttle && ./autogen.sh && ./configure VARNISHSRC=/opt/varnish-3.0.7 LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib && make -j3 && make install
 
 ENV LISTEN_ADDR 0.0.0.0
 ENV LISTEN_PORT 6081
@@ -52,7 +38,7 @@ RUN chmod +x /usr/local/bin/varnish.sh
 #RUN echo "/usr/local/bin/varnish.sh" >> /etc/rc.local
 
 # Clean up APT when done
-RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /opt/varnish-3.0.7 /opt/libvmod-throttle
 
 EXPOSE 6081
 
